@@ -1,8 +1,10 @@
+import { MarkdownRenderer, Plugin } from "obsidian";
+
 import { IGlossData } from "src/data/gloss";
 import { getDefaultAlignMarkers } from "src/data/settings";
 import { PluginSettingsWrapper } from "src/settings/wrapper";
 
-import { formatWhitespace, getLevelMetadata, getStyleClasses, getStyleKind, renderBlock } from "./helpers";
+import { formatWhitespace, getLevelMetadata, getStyleClasses, getStyleKind, renderBlock, setElementText } from "./helpers";
 
 
 interface IFormatFlags {
@@ -12,7 +14,7 @@ interface IFormatFlags {
 }
 
 export class GlossRenderer {
-    constructor(private settings: PluginSettingsWrapper) { }
+    constructor(private settings: PluginSettingsWrapper, private plugin: Plugin) { }
 
     renderErrors(target: HTMLElement, errors: string[]) {
         target.empty();
@@ -22,13 +24,8 @@ export class GlossRenderer {
         }
     }
 
-    renderGloss(target: HTMLElement, data: IGlossData) {
+    renderGloss(target: HTMLElement, data: IGlossData, sourcePath: string) {
         const { styles, altSpaces, useMarkup } = data.options;
-
-        // TODO: Implement markup rendering
-        if (useMarkup) {
-            return this.renderErrors(target, ["advanced markup is not supported at the time"]);
-        }
 
         target.empty();
 
@@ -38,7 +35,9 @@ export class GlossRenderer {
             kind: "number",
             text: data.number.value,
             always: true,
-            format: (text) => formatWhitespace(text, true),
+            render: (element, text) => this.renderText(element, text, {
+                useNbsp: true,
+            }, sourcePath),
         });
 
         const gloss = container.createDiv({
@@ -48,13 +47,18 @@ export class GlossRenderer {
         renderBlock(gloss, {
             kind: "label",
             text: data.label,
+            render: (element, text) => this.renderText(element, text, {
+                useMarkup,
+            }, sourcePath),
         });
 
         renderBlock(gloss, {
             kind: "preamble",
             cls: styles.preamble,
             text: data.preamble,
-            format: (text) => this.formatText(text, { useMarkup }),
+            render: (element, text) => this.renderText(element, text, {
+                useMarkup,
+            }, sourcePath),
         });
 
         if (data.elements.length > 0) {
@@ -92,11 +96,11 @@ export class GlossRenderer {
                         cls: styles[styleKey],
                         text: level,
                         always: true,
-                        format: (text) => this.formatText(text, {
+                        render: (el, text) => this.renderText(el, text, {
                             useMarkup,
                             glaSpaces,
                             useNbsp: true,
-                        }),
+                        }, sourcePath),
                     });
                 }
             }
@@ -109,13 +113,18 @@ export class GlossRenderer {
                 kind: "translation",
                 cls: styles.translation,
                 text: data.translation,
-                format: (text) => this.formatText(text, { useMarkup }),
+                render: (element, text) => this.renderText(element, text, {
+                    useMarkup,
+                }, sourcePath),
             });
 
             renderBlock(postamble, {
                 kind: "source",
                 cls: styles.source,
                 text: data.source,
+                render: (element, text) => this.renderText(element, text, {
+                    useMarkup,
+                }, sourcePath),
             });
         }
 
@@ -132,17 +141,30 @@ export class GlossRenderer {
         }
     }
 
-    private formatText(text: string, format: IFormatFlags): string | DocumentFragment {
+    private renderText(element: HTMLElement, input: string, format: IFormatFlags, sourcePath: string): void | Promise<void> {
+        let text = input;
+
         if (format.glaSpaces) {
             // Replace underscores with whitespace
             text = text.replace(/[_]+/, " ");
         }
 
-        // TODO: Implement markup rendering
         if (format.useMarkup) {
-            throw "not implemented yet";
+            return MarkdownRenderer.renderMarkdown(
+                this.prepareMarkupText(text, format.useNbsp),
+                element,
+                sourcePath,
+                this.plugin,
+            );
         }
 
-        return formatWhitespace(text, format.useNbsp);
+        setElementText(element, formatWhitespace(text, format.useNbsp));
+    }
+
+    private prepareMarkupText(text: string, useNbsp?: boolean): string {
+        if (!useNbsp) return text;
+
+        // Preserve explicit whitespace in markup mode by swapping consecutive spaces for &nbsp;
+        return text.replace(/[^\S\r\n]+/g, "&nbsp;");
     }
 }

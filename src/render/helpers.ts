@@ -23,7 +23,7 @@ interface IBlockOptions {
     text: string;
     cls?: string[];
     always?: boolean;
-    format?: (text: string) => string | DocumentFragment;
+    render?: (element: HTMLElement, text: string) => void | Promise<void>;
 }
 
 export const formatWhitespace = (text: string, nbsp = false): string =>
@@ -32,8 +32,24 @@ export const formatWhitespace = (text: string, nbsp = false): string =>
 export const renderBlock = (target: HTMLElement, options: IBlockOptions) => {
     if (options.text.length < 1 && !options.always) return;
 
-    target.createDiv({
-        text: options.format?.(options.text) ?? formatWhitespace(options.text),
+    const element = target.createDiv({
         cls: [getStyleKind(options.kind), ...getStyleClasses(options.cls ?? [])],
     });
+
+    if (options.render) {
+        const result = options.render(element, options.text);
+        if (result instanceof Promise) void result;
+        return;
+    }
+
+    setElementText(element, formatWhitespace(options.text));
 };
+
+export function setElementText(element: HTMLElement, value: string) {
+    const maybeSetText = (element as HTMLElement & { setText?: (text: string) => void }).setText;
+    if (typeof maybeSetText === "function") {
+        maybeSetText.call(element, value);
+    } else {
+        element.textContent = value;
+    }
+}
